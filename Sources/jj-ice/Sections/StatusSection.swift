@@ -11,8 +11,8 @@ import AppKit
 /// The app is three layers:
 /// - `Monitors/` reads a hardware value and knows nothing about AppKit.
 /// - `Sections/` owns exactly one `NSStatusItem`: placement, refresh loop, visibility, drawing.
-/// - `StatusBarController` only arranges sections around the divider and toggle, and aggregates
-///   their menu entries.
+/// - `StatusBarController` only arranges the sections next to the menu item, and aggregates their
+///   menu entries.
 ///
 /// Adding a readout therefore means one subclass overriding `refresh()`, plus one entry in the
 /// controller's section list. Everything below is shared plumbing; subclasses override
@@ -22,8 +22,8 @@ class StatusSection {
     let item: NSStatusItem
 
     /// Title of the menu entry that shows and hides this section. Nil means the user gets no
-    /// switch because visibility follows the data alone. The entry lives in the shared menu, which
-    /// the arrow's right click opens.
+    /// switch because visibility follows the data alone. The entry lives in the shared menu behind
+    /// the jj-ice icon.
     var menuToggleTitle: String? { nil }
 
     /// Title of the shared menu entry that opens this section's settings, and the switch that makes
@@ -126,8 +126,8 @@ class StatusSection {
     /// Hiding an item makes AppKit discard its `NSStatusItem Preferred Position` entry and never
     /// restore it (measured: the key stays gone across repeated hide/show cycles), so the slot has
     /// to be re-seeded on the way back in. Without this a readout that comes and goes - AirPods
-    /// leaving and re-entering the ear - can reappear left of the divider, where collapsing hides
-    /// it. Seeding is a no-op while AppKit still owns the key.
+    /// leaving and re-entering the ear - jumps to the far left every time it returns. Seeding is a
+    /// no-op while AppKit still owns the key.
     private func setVisible(_ visible: Bool) {
         if visible, !item.isVisible {
             Self.seedRightmostPosition(autosaveName, defaults)
@@ -136,11 +136,11 @@ class StatusSection {
     }
 
     /// AppKit keeps each item's slot in `NSStatusItem Preferred Position <autosaveName>`, a
-    /// distance from the right edge where smaller means further right. A section shipped in a
-    /// later version has no slot yet and can land left of the divider - exactly where collapsing
-    /// hides it. Seeding 0 asks for the rightmost slot available to a third-party item; AppKit
-    /// clamps it into the usable range and owns the value from then on.
-    private static func seedRightmostPosition(_ autosaveName: String, _ defaults: UserDefaults) {
+    /// distance from the right edge where smaller means further right. An item shipped in a later
+    /// version has no slot yet and would land on the far left, away from the rest of jj-ice.
+    /// Seeding 0 asks for the rightmost slot available to a third-party item; AppKit clamps it
+    /// into the usable range and owns the value from then on.
+    static func seedRightmostPosition(_ autosaveName: String, _ defaults: UserDefaults) {
         let key = "NSStatusItem Preferred Position \(autosaveName)"
         guard defaults.object(forKey: key) == nil else { return }
         defaults.set(0, forKey: key)

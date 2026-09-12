@@ -9,7 +9,7 @@ import AppKit
 ///
 /// Visibility is the switch AND live data, so the readout is there only while both hold - turning
 /// the switch off also stops the polling, and with it the notification. Clicking it opens the low
-/// battery notification editor, which the arrow's menu also holds: the readout is gone exactly when
+/// battery notification editor, which the jj-ice menu also holds: the readout is gone exactly when
 /// the AirPods are, which is a likely moment to want to change the rule.
 final class AirPodsBatterySection: StatusSection {
     override var menuToggleTitle: String? { "Show AirPods Battery" }
@@ -36,8 +36,8 @@ final class AirPodsBatterySection: StatusSection {
         )
         // Deliberately left visible until the first sample decides: hiding the item inside `init`
         // makes AppKit drop its `NSStatusItem Preferred Position` entry (measured), which gives up
-        // the seeded rightmost slot and lets the readout reappear left of the divider. The cost is
-        // an icon with no percentage for as long as the first read takes, about 60 ms.
+        // the seeded rightmost slot and lets the readout reappear on the far left. The cost is an
+        // icon with no percentage for as long as the first read takes, about 60 ms.
         guard let button = item.button else { return }
         button.image = NSImage(systemSymbolName: "airpods", accessibilityDescription: "AirPods battery")
         button.imagePosition = .imageLeading
@@ -85,7 +85,7 @@ final class AirPodsBatterySection: StatusSection {
                         // would sit there looking armed while doing nothing.
                         present(
                             title: "Saved, but Switched Off",
-                            body: "Show AirPods Battery is off in the arrow's menu, which stops the "
+                            body: "Show AirPods Battery is off in the jj-ice menu, which stops the "
                                 + "polling this notification needs. Switch it back on to arm the rule.",
                             isWarning: true
                         )

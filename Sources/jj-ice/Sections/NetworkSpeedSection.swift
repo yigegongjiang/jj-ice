@@ -8,7 +8,7 @@ import AppKit
 /// Two stacked lines of throughput: upload on top, download below.
 ///
 /// Display only: clicking it does nothing. The `Show Network Speed` switch that hides and restores
-/// it lives in the arrow's right click menu.
+/// it lives in the jj-ice menu.
 final class NetworkSpeedSection: StatusSection {
     override var menuToggleTitle: String? { "Show Network Speed" }
     override var refreshInterval: Duration { .seconds(1) }

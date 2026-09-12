@@ -14,6 +14,17 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-12
+
+### Removed
+
+- 移除折叠功能: 分隔符图标不再出现, 菜单栏图标不再可折叠。macOS 27 起系统层面已无可用机制 (公开与私有 API 均实测无解), macOS 26 的旧实现一并删除。
+
+### Changed
+
+- jj-ice 图标现在只是菜单入口, 左右键都直接开菜单; 升级后它的位置会重置一次到最右侧。
+- 网速与 AirPods 电量读数不受影响。
+
 ## [0.9.0] - 2026-09-12
 
 ### Changed
@@ -172,7 +183,8 @@
 
 - Added the install script.
 
-[Unreleased]: https://github.com/yigegongjiang/jj-ice/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/yigegongjiang/jj-ice/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/yigegongjiang/jj-ice/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.7.3...v0.8.0
