@@ -10,11 +10,16 @@ import ServiceManagement
 /// Classic divider + toggle menu bar item layout, implemented without private APIs.
 /// Left to right: `[hideable items] [divider] [toggle] [sections] [system items]`.
 ///
+/// On macOS 27 the divider is gone and the layout is `[toggle] [sections] [system items]`,
+/// because the OS no longer allows anything to be pushed off screen - see `supportsCollapse`.
+///
 /// Arranging and the shared menu live here; each readout lives in its own `StatusSection`
 /// subclass (see `Sections/StatusSection.swift` for the layering).
 @MainActor
 final class StatusBarController {
-    private let separatorItem: NSStatusItem
+    /// Nil where the OS no longer lets a widened item push its neighbours off screen; see
+    /// `supportsCollapse`. Nil also means "this build has no divider" everywhere below.
+    private let separatorItem: NSStatusItem?
     private let toggleItem: NSStatusItem
     private let sections: [StatusSection]
 
@@ -24,6 +29,19 @@ final class StatusBarController {
     private static let collapsedDefaultsKey = "jj-ice.isCollapsed"
     private static let didApplyDefaultLaunchAtLoginKey = "jj-ice.didApplyDefaultLaunchAtLogin"
     private static let repositoryURL = URL(string: "https://github.com/yigegongjiang/jj-ice")!
+
+    /// macOS 27 rebuilt the menu bar as a single window and clamps status item layout, which
+    /// kills the widen-the-divider trick this app collapses with. Measured on 27.0 (26A428):
+    /// a widened item stops moving left at a positive x (~130pt on a 1440pt-wide screen, never
+    /// negative), its width caps at 5000pt, and past roughly 400pt of length the neighbours it
+    /// should have pushed away reflow back to its right instead. No length hides anything.
+    /// Every menu bar manager that still hides items on 27 drives private SkyLight/XPC paths
+    /// Apple can revoke in any build, so this app drops the feature there rather than take on
+    /// a mechanism that rots. The readouts are unaffected and stay.
+    private static let supportsCollapse: Bool = {
+        if #available(macOS 27.0, *) { return false }
+        return true
+    }()
 
     private var isCollapsed: Bool {
         didSet {
@@ -48,7 +66,12 @@ final class StatusBarController {
         ]
         let statusBar = NSStatusBar.system
         self.toggleItem = statusBar.statusItem(withLength: NSStatusItem.variableLength)
-        self.separatorItem = statusBar.statusItem(withLength: NSStatusItem.variableLength)
+        // Never created rather than created and hidden: hiding an item makes AppKit discard its
+        // saved slot for good (see `StatusSection.setVisible`), which would cost the user their
+        // divider position if a later macOS brought collapsing back.
+        self.separatorItem = Self.supportsCollapse
+            ? statusBar.statusItem(withLength: NSStatusItem.variableLength)
+            : nil
 
         configureSeparatorItem()
         configureToggleItem()
@@ -60,6 +83,7 @@ final class StatusBarController {
     // MARK: - Setup
 
     private func configureSeparatorItem() {
+        guard let separatorItem else { return }
         separatorItem.autosaveName = "jj-ice.Separator"
         guard let button = separatorItem.button else { return }
         button.image = makeSeparatorImage()
@@ -109,6 +133,15 @@ final class StatusBarController {
     }
 
     private func applyCollapsedState() {
+        guard let separatorItem else {
+            // Nothing collapses here, so an arrow would promise something the item cannot do.
+            let description = "jj-ice menu - collapsing is unavailable on macOS 27"
+            toggleItem.button?.image = NSImage(systemSymbolName: "ellipsis.circle",
+                                               accessibilityDescription: description)
+            toggleItem.button?.toolTip = description
+            return
+        }
+
         if isCollapsed {
             // Widen the divider to push left-side items away, then hide the divider itself.
             separatorItem.length = expandedLength
@@ -132,6 +165,14 @@ final class StatusBarController {
     }
 
     @objc private func handleToggleClick() {
+        // Without a divider every click opens the menu: it is the only route to the section
+        // switches, Launch at Login and Quit, and the AirPods readout that also carries a menu
+        // entry disappears whenever no headphones are connected.
+        guard separatorItem != nil else {
+            presentMenu()
+            return
+        }
+
         // Right click and Control-click open the menu; other clicks toggle collapse.
         if let event = NSApp.currentEvent,
            event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
@@ -152,6 +193,12 @@ final class StatusBarController {
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
+
+        // A user who upgraded to macOS 27 finds the arrow inert; say why where they will look.
+        if separatorItem == nil {
+            menu.addItem(NSMenuItem(title: "Collapsing Unavailable on macOS 27", action: nil, keyEquivalent: ""))
+            menu.addItem(.separator())
+        }
 
         for section in sections {
             guard let title = section.menuToggleTitle else { continue }
@@ -203,11 +250,14 @@ final class StatusBarController {
 
     @objc private func menuShowAbout() {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let collapsingLine = separatorItem == nil
+            ? "macOS 27 rebuilt the menu bar so that no app can push items off screen, so collapsing is unavailable here and the icon only opens this menu. The readouts below still work. Use the system's own overflow button, which appears once the icons no longer fit."
+            : "Click the arrow to collapse or expand, right-click it for the menu; hold Command and drag items to the left side of the divider to hide them."
         let alert = NSAlert()
         alert.messageText = "jj-ice \(version)"
         alert.informativeText = """
         Menu bar item organizer with a network speed and AirPods battery readout.
-        Click the arrow to collapse or expand, right-click it for the menu; hold Command and drag items to the left side of the divider to hide them.
+        \(collapsingLine)
         The speed readout is display only and sums the physical links, so a VPN going up or down does not change the numbers.
         Click the AirPods readout to set up a low battery notification: a percentage and an HTTP request, written as JSON.
         The AirPods percentage is one earbud's, and disappears when nothing is connected.

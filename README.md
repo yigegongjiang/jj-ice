@@ -17,18 +17,27 @@ curl -fsSL https://raw.githubusercontent.com/yigegongjiang/jj-ice/main/scripts/i
 ```
 
 - 手动装: 下载 [Releases](https://github.com/yigegongjiang/jj-ice/releases) 的 `jj-ice-macos.zip` → 拖 `/Applications` → `xattr -dr com.apple.quarantine /Applications/jj-ice.app`
-- 按住 `Command` 拖动图标到分隔符左侧 = 归入可隐藏区; 右侧常驻
-- 点箭头折叠 / 展开 (状态持久化); 右键箭头 = 菜单入口: 网速开关 / AirPods 电量开关 (均默认开) / AirPods 通知设置 / 登录启动 (默认开) / Help / About / Quit
+- macOS 26: 按住 `Command` 拖动图标到分隔符左侧 = 归入可隐藏区 (右侧常驻); 点箭头折叠 / 展开 (状态持久化); 右键箭头 = 菜单入口
+- macOS 27: 无分隔符, 箭头换成 `ellipsis.circle`, 左右键均开菜单; 折叠不可用 (系统限制 → 见[架构](#架构)), 读数不受影响
+- 菜单项: 网速开关 / AirPods 电量开关 (均默认开) / AirPods 通知设置 / 登录启动 (默认开) / Help / About / Quit
 - 网速两行 (上 = 上行 / 下 = 下行), 1s 刷新, 占宽 ~22pt; 只统计物理网卡 → VPN 开关不改变读数; 纯展示, 点击无反应 (开关在箭头右键菜单)
 - AirPods 电量 `xx%`, 15s 刷新; 只读单只 (双耳同步耗电); 显隐 = 开关 AND 已连接耳机 (网速只看开关): 未连接自动消失, 关开关连 15s 轮询一并停止
 - 点 AirPods 读数 = 编辑低电量通知 (JSON: 阈值 + 要调用的 HTTP 请求, 首次打开填模板); 读数消失时走箭头右键菜单同名项
-- ad-hoc 签名, 未公证, App Store 外分发; 需 macOS 26+
+- ad-hoc 签名, 未公证, App Store 外分发; 需 macOS 26+ (macOS 27 上只有读数, 无折叠)
 
 ## 架构
 
 Swift 6 + AppKit, 纯 `NSStatusItem` 实现, 无私有 API. `autosaveName` 托管图标位置, `UserDefaults` 存折叠状态, `ServiceManagement` 管登录启动. 无第三方依赖.
 
-折叠原理: 折叠时把分隔符 item 撑到 `max(10000, 最宽屏宽 + 200)` 并 `alphaValue = 0`, 左侧图标被挤出屏幕; 展开时回到 `variableLength`.
+折叠原理 (仅 macOS 26): 折叠时把分隔符 item 撑到 `max(10000, 最宽屏宽 + 200)` 并 `alphaValue = 0`, 左侧图标被挤出屏幕; 展开时回到 `variableLength`.
+
+macOS 27 起该机制失效, 折叠整体关闭 (`StatusBarController.supportsCollapse` → 分隔符 item NEVER 创建, 箭头退化成纯菜单入口):
+
+- 系统把整条菜单栏改为单一 window 并钳制 status item 布局。27.0 (26A428) 实测: 加宽的 item 向左停在正 x (1440pt 宽屏上约 130pt, NEVER 到负值), 自身宽度上限 5000pt, length 超过约 400pt 后左邻图标反而回流到它右侧 → 任何 length 都隐藏不了东西
+- macOS 27 上仍能隐藏图标的管理器 (Bartender / Thaw / Brow / BetterTouchTool) 全部依赖私有 SkyLight + `MenuBarAgent` XPC, 官方无替代 API (27.0 SDK 只新增 `NSStatusItemExpandedInterfaceDelegate`, 与隐藏无关), Apple 可在任意 build 收回 → NEVER 引入
+- 替代品 = 系统自带 overflow 展开按钮: 图标放不下时自动出现, 不可选择隐藏哪些图标
+- 分隔符改为「不创建」而非 `isVisible = false`: 后者会让 AppKit 永久丢弃其 `NSStatusItem Preferred Position` (同 `StatusSection.setVisible` 的坑)
+- macOS 27.0 (26A428) 实测两个读数不受影响, NEVER 重复验证: `ifmibdata` 计数器仍是精确 64 位 (未量化), `system_profiler SPBluetoothDataType -json` 的 `device_connected` / `device_batteryLevelLeft` / `device_minorType` 结构未变
 
 分层 (新增读数 = 加一个 Section 子类 + controller 列表加一行):
 
@@ -47,7 +56,7 @@ Swift 6 + AppKit, 纯 `NSStatusItem` 实现, 无私有 API. `autosaveName` 托�
 - 读数 section 默认点击无反应; 有设置才重写 `settingsTitle` (非 nil = controller 挂 click + 进箭头菜单 → 读数隐藏时仍可进) 与 `openSettings()`
 - `autosaveName` 与显隐 `UserDefaults` key 一经发布即冻结: 改名 = 重置用户图标位置 / 静默重开已关读数
 - 实测 AppKit 一旦 `isVisible = false` 就丢弃该 item 的 `NSStatusItem Preferred Position` 且永不回写 (反复隐藏 / 显示都不恢复) → 已播种的最右槽被交出, 读数可能重现在分隔符左侧。两处对策: `init` 里 NEVER 设 `isVisible = false` (交给首次 `refresh()`, 代价约 60ms 空图标); 每次由隐藏转显示前重新播种 (`StatusSection.setVisible`)
-- macOS 26 实测 `CGWindowListCopyWindowInfo`: 全部菜单栏图标 (含第三方) 的 owner 都是 `Control Center` 进程, 无 Screen Recording 权限时 `kCGWindowName` 全 nil, AX 只暴露 clock / controlcenter / sound 三个自带模块 → 任意图标的坐标随便拿, 归属识别不了 → NEVER 接「把读数贴到系统某图标右侧」类需求: 认不出目标, 且 Preferred Position 只在创建 / 隐藏→显示时被读取, 事后也跟不了它的移动
+- macOS 26 实测 `CGWindowListCopyWindowInfo` (macOS 27 更彻底, 整条菜单栏只剩 1 个 window): 全部菜单栏图标 (含第三方) 的 owner 都是 `Control Center` 进程, 无 Screen Recording 权限时 `kCGWindowName` 全 nil, AX 只暴露 clock / controlcenter / sound 三个自带模块 → 任意图标的坐标随便拿, 归属识别不了 → NEVER 接「把读数贴到系统某图标右侧」类需求: 认不出目标, 且 Preferred Position 只在创建 / 隐藏→显示时被读取, 事后也跟不了它的移动
 
 网速采样: `sysctl(CTL_NET, PF_LINK, NETLINK_GENERIC, IFMIB_IFDATA, <if_index>, IFDATA_GENERAL)` 取 `struct ifmibdata` 的 64 位 `if_data64` 计数器, 1s 差分.
 

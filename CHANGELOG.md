@@ -14,6 +14,14 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-12
+
+### Changed
+
+- macOS 27 上折叠不再可用: 系统重写了菜单栏, 任何 app 都无法再把图标挤出屏幕。分隔符不再出现, 箭头换成圆点图标, 左右键都直接开菜单。
+- 网速与 AirPods 电量读数在 macOS 27 上照常工作; macOS 26 的折叠行为完全不变。
+- 想在 macOS 27 折叠图标, 只能用系统自带的展开按钮 (图标放不下时自动出现), 但无法指定隐藏哪些。
+
 ## [0.8.1] - 2026-08-19
 
 ### Changed
@@ -164,7 +172,8 @@
 
 - Added the install script.
 
-[Unreleased]: https://github.com/yigegongjiang/jj-ice/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/yigegongjiang/jj-ice/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/yigegongjiang/jj-ice/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/yigegongjiang/jj-ice/compare/v0.7.2...v0.7.3
