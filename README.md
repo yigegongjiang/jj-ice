@@ -34,7 +34,16 @@ Swift 6 + AppKit, 纯 `NSStatusItem` 实现, 无私有 API. `autosaveName` 托�
 macOS 27 起该机制失效, 折叠整体关闭 (`StatusBarController.supportsCollapse` → 分隔符 item NEVER 创建, 箭头退化成纯菜单入口):
 
 - 系统把整条菜单栏改为单一 window 并钳制 status item 布局。27.0 (26A428) 实测: 加宽的 item 向左停在正 x (1440pt 宽屏上约 130pt, NEVER 到负值), 自身宽度上限 5000pt, length 超过约 400pt 后左邻图标反而回流到它右侧 → 任何 length 都隐藏不了东西
-- macOS 27 上仍能隐藏图标的管理器 (Bartender / Thaw / Brow / BetterTouchTool) 全部依赖私有 SkyLight + `MenuBarAgent` XPC, 官方无替代 API (27.0 SDK 只新增 `NSStatusItemExpandedInterfaceDelegate`, 与隐藏无关), Apple 可在任意 build 收回 → NEVER 引入
+- 官方无替代 API: 27.0 SDK 的 `NSStatusItem` 只新增 `NSStatusItemExpandedInterfaceDelegate` (管自家弹窗), 与隐藏别家 item 无关
+- 私有 API 路线已逐条实测封死 (27.0 / 26A428), NEVER 重复调研:
+  - 第三方 item 不再有 CG window: `CGWindowListCopyWindowInfo` 只剩每屏 1 个 `Window Server` 的 `Menubar`
+  - SkyLight 旧 status bar 接口被编译成空实现: `SLSStatusBarCopyItemLayout` 直接 `return NULL`; `SLSSystemStatusBarRegisterWindow` / `SLSTransactionSystemStatusBarSetLayoutIndex` / `SLSTransactionSystemStatusBarResetLayout` / `SLSAdjustSystemStatusBarWindows` / `SLSSetSystemStatusBarWindowSubitemOffsets` 全是裸 `ret`
+  - item 改由 `MenuBarAgent` 经 BoardServices scene 托管 (`NSStatusItemHost`); 第三方进程里 `NSStatusItemHost.allHosts` = 0, agent 的菜单栏服务由私有 entitlement `com.apple.private.menubar.allow` 把关 (需 Apple 签名, ad-hoc 拿不到)
+  - `com.apple.MenuBarAgent.visibility-restriction` 与隐藏无关: 是模态期间的 hit-test 限制 (`restrictHitTestToTheseContextIDs`)
+  - length 过大的 item (实测 900pt) 直接被丢出菜单栏且不挤动任何人 → 宽度路线彻底无效
+  - 合成 `Command` + 拖拽 (Ice 在 macOS 26 的移动手法) 不再移动 item
+- AX 在 macOS 27 反而变强, 这是陷阱: `MenuBarAgent` 的 AX 树按屏列出全部 item (owner app 名 / frame / `AXPress`), 但 item 无显隐属性、`AXPosition` 不可写 → 能枚举 ≠ 能隐藏, NEVER 据此重开折叠方案
+- Thaw 2.x / Bartender GG beta 能隐藏靠的是未公开行为 (Thaw 的 27 后端按 live AX 几何重新摆放 item), Apple 可在任意 build 收回; 要折叠就装它们, jj-ice 只留读数
 - 替代品 = 系统自带 overflow 展开按钮: 图标放不下时自动出现, 不可选择隐藏哪些图标
 - 分隔符改为「不创建」而非 `isVisible = false`: 后者会让 AppKit 永久丢弃其 `NSStatusItem Preferred Position` (同 `StatusSection.setVisible` 的坑)
 - macOS 27.0 (26A428) 实测两个读数不受影响, NEVER 重复验证: `ifmibdata` 计数器仍是精确 64 位 (未量化), `system_profiler SPBluetoothDataType -json` 的 `device_connected` / `device_batteryLevelLeft` / `device_minorType` 结构未变
