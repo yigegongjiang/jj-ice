@@ -7,101 +7,83 @@ import AppKit
 import OSLog
 import ServiceManagement
 
-/// Menu bar layout, left to right: `[menu] [sections] [system items]`.
+/// The app's single menu bar item: the readout draws it, a click opens the menu.
 ///
-/// Arranging and the shared menu live here; each readout lives in its own `StatusSection`
-/// subclass (see `Sections/StatusSection.swift` for the layering).
+/// One item on purpose - a menu bar is scarce space, and the two readouts plus the menu fit in one
+/// slot (see `Readout/` for the layering).
 @MainActor
 final class StatusBarController {
-    private let menuItem: NSStatusItem
-    private let sections: [StatusSection]
+    private let item: NSStatusItem
+    private let readout: MenuBarReadout
+    private let notifyEditor: AirPodsNotifyEditor
 
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "jj-ice", category: "StatusBar")
 
-    private static let menuAutosaveName = "jj-ice.Menu"
+    private static let autosaveName = "jj-ice.Readout"
     private static let didApplyDefaultLaunchAtLoginKey = "jj-ice.didApplyDefaultLaunchAtLogin"
     private static let repositoryURL = URL(string: "https://github.com/yigegongjiang/jj-ice")!
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.readout = MenuBarReadout(defaults: defaults)
+        self.notifyEditor = AirPodsNotifyEditor(readout: readout)
 
-        // AppKit drops an item with no saved slot on the far left, so every item seeds its own
-        // rightmost slot (see `StatusSection`). Within this list, earlier means further right on a
-        // first launch; afterwards AppKit owns the order.
-        self.sections = [
-            NetworkSpeedSection(defaults: defaults),
-            AirPodsBatterySection(defaults: defaults),
-        ]
-        StatusSection.seedRightmostPosition(Self.menuAutosaveName, defaults)
-        self.menuItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        Self.seedRightmostPosition(defaults)
+        self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.autosaveName = Self.autosaveName
 
-        configureMenuItem()
-        configureSections()
+        configureButton()
+        readout.onRender = { [weak self] image, tooltip in
+            self?.item.button?.image = image
+            self?.item.button?.toolTip = tooltip
+        }
+        readout.start()
         enableLaunchAtLoginByDefaultIfNeeded()
     }
 
     // MARK: - Setup
 
-    private func configureMenuItem() {
-        menuItem.autosaveName = Self.menuAutosaveName
-        guard let button = menuItem.button else { return }
-        let description = "jj-ice menu"
-        button.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: description)
-        button.toolTip = description
+    private func configureButton() {
+        guard let button = item.button else { return }
         button.target = self
-        button.action = #selector(handleMenuItemClick)
+        button.action = #selector(handleClick)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
-    /// A readout answers a click only when it has settings to open; the rest stay inert. Every
-    /// section's switch and settings entry lives in the shared menu instead.
-    private func configureSections() {
-        for section in sections {
-            if section.settingsTitle != nil, let button = section.item.button {
-                button.target = self
-                button.action = #selector(handleSectionClick)
-            }
-            section.activate()
-        }
+    /// AppKit drops an item with no saved slot on the far left, away from the system's own. Seeding
+    /// 0 asks for the rightmost slot available to a third-party item; AppKit clamps it into the
+    /// usable range and owns the value from then on, so this is a no-op after the first launch.
+    private static func seedRightmostPosition(_ defaults: UserDefaults) {
+        let key = "NSStatusItem Preferred Position \(autosaveName)"
+        guard defaults.object(forKey: key) == nil else { return }
+        defaults.set(0, forKey: key)
     }
 
     // MARK: - Interaction
 
-    @objc private func handleSectionClick(_ sender: NSButton) {
-        sections.first { $0.item.button === sender }?.openSettings()
-    }
-
-    @objc private func handleMenuItemClick() {
-        presentMenu()
-    }
-
-    /// The menu item is the only entry point to the menu, so it is also the only way back after
-    /// hiding a section.
-    private func presentMenu() {
-        guard let button = menuItem.button else { return }
-        menuItem.menu = makeMenu()
-        defer { menuItem.menu = nil }
+    /// Left and right both open the menu: it is the only route to the switches, the notification
+    /// editor, Launch at Login and Quit.
+    @objc private func handleClick() {
+        guard let button = item.button else { return }
+        item.menu = makeMenu()
+        defer { item.menu = nil }
         button.performClick(nil)
     }
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
 
-        for section in sections {
-            guard let title = section.menuToggleTitle else { continue }
-            let item = makeMenuItem(title: title, action: #selector(menuToggleSection))
-            item.state = section.isEnabled ? .on : .off
-            item.representedObject = section
-            menu.addItem(item)
-        }
+        let speedItem = makeMenuItem(title: "Show Network Speed", action: #selector(menuToggleSpeed))
+        speedItem.state = readout.showsSpeed ? .on : .off
+        menu.addItem(speedItem)
 
-        for section in sections {
-            guard let title = section.settingsTitle else { continue }
-            let item = makeMenuItem(title: title, action: #selector(menuOpenSectionSettings))
-            item.representedObject = section
-            menu.addItem(item)
-        }
+        let batteryItem = makeMenuItem(title: "Show AirPods Battery", action: #selector(menuToggleBattery))
+        batteryItem.state = readout.showsBattery ? .on : .off
+        menu.addItem(batteryItem)
+
+        menu.addItem(makeMenuItem(title: "AirPods Battery Notification...",
+                                  action: #selector(menuOpenNotifyEditor)))
 
         let launchItem = makeMenuItem(title: "Launch at Login", action: #selector(menuToggleLaunchAtLogin))
         launchItem.state = isLaunchAtLoginEnabled ? .on : .off
@@ -122,14 +104,16 @@ final class StatusBarController {
         return item
     }
 
-    @objc private func menuToggleSection(_ sender: NSMenuItem) {
-        guard let section = sender.representedObject as? StatusSection else { return }
-        section.isEnabled.toggle()
+    @objc private func menuToggleSpeed() {
+        readout.showsSpeed.toggle()
     }
 
-    @objc private func menuOpenSectionSettings(_ sender: NSMenuItem) {
-        guard let section = sender.representedObject as? StatusSection else { return }
-        section.openSettings()
+    @objc private func menuToggleBattery() {
+        readout.showsBattery.toggle()
+    }
+
+    @objc private func menuOpenNotifyEditor() {
+        notifyEditor.open()
     }
 
     @objc private func menuOpenHelp() {
@@ -141,10 +125,9 @@ final class StatusBarController {
         let alert = NSAlert()
         alert.messageText = "jj-ice \(version)"
         alert.informativeText = """
-        Menu bar readouts: network speed and AirPods battery.
-        Click the jj-ice icon for the menu: each readout's switch, its settings, and Launch at Login.
-        The speed readout is display only and sums the physical links, so a VPN going up or down does not change the numbers.
-        Click the AirPods readout to set up a low battery notification: a percentage and an HTTP request, written as JSON.
+        One menu bar item: network speed, with the AirPods battery level to its right.
+        Click it for the menu: both switches, the battery notification and Launch at Login.
+        The speed readout sums the physical links, so a VPN going up or down does not change the numbers.
         The AirPods percentage is one earbud's, and disappears when nothing is connected.
         """
         alert.addButton(withTitle: "OK")

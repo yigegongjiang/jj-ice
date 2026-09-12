@@ -14,6 +14,16 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-12
+
+### Changed
+
+- 菜单栏从 3 个图标合并成 1 个: 网速两行, AirPods 电量直接贴在它右侧, 没连耳机就只剩网速。
+- AirPods 去掉了前面的耳机图标, 只显示百分比 (定宽, 不会随电量变化抖动)。
+- 左键或右键点这个图标都弹菜单 (原来的独立菜单图标已取消); 低电量通知改从菜单里的 `AirPods Battery Notification...` 打开。
+- 两个开关都关掉时图标退化成一个圆点, 仍可点开菜单。
+- 升级后图标位置会重置一次 (三个旧位置作废)。
+
 ## [0.10.0] - 2026-09-12
 
 ### Removed
@@ -183,7 +193,8 @@
 
 - Added the install script.
 
-[Unreleased]: https://github.com/yigegongjiang/jj-ice/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/yigegongjiang/jj-ice/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/yigegongjiang/jj-ice/compare/v0.8.0...v0.8.1

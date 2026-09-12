@@ -8,7 +8,7 @@
 
 # jj-ice
 
-macOS 菜单栏常驻读数: 上下行网速 + AirPods 电量.
+macOS 菜单栏常驻读数, 只占一个图标: 上下行网速 + 右侧 AirPods 电量.
 
 ## 使用
 
@@ -17,33 +17,36 @@ curl -fsSL https://raw.githubusercontent.com/yigegongjiang/jj-ice/main/scripts/i
 ```
 
 - 手动装: 下载 [Releases](https://github.com/yigegongjiang/jj-ice/releases) 的 `jj-ice-macos.zip` → 拖 `/Applications` → `xattr -dr com.apple.quarantine /Applications/jj-ice.app`
-- 点 `ellipsis.circle` 图标 (左右键均可) = 菜单入口: 网速开关 / AirPods 电量开关 (均默认开) / AirPods 通知设置 / 登录启动 (默认开) / Help / About / Quit
-- 网速两行 (上 = 上行 / 下 = 下行), 1s 刷新, 占宽 ~22pt; 只统计物理网卡 → VPN 开关不改变读数; 纯展示, 点击无反应 (开关在 jj-ice 菜单)
-- AirPods 电量 `xx%`, 15s 刷新; 只读单只 (双耳同步耗电); 显隐 = 开关 AND 已连接耳机 (网速只看开关): 未连接自动消失, 关开关连 15s 轮询一并停止
-- 点 AirPods 读数 = 编辑低电量通知 (JSON: 阈值 + 要调用的 HTTP 请求, 首次打开填模板); 读数消失时走 jj-ice 菜单同名项
+- 全部内容画在一个 item 上: `[两行网速][间隔][电量%]`; 左右键点它均弹菜单 = 网速开关 / AirPods 电量开关 (均默认开) / AirPods 通知设置 / 登录启动 (默认开) / Help / About / Quit
+- 网速两行 (上 = 上行 / 下 = 下行), 1s 刷新, 占宽 ~22pt; 只统计物理网卡 → VPN 开关不改变读数
+- AirPods 电量 `xx%` 贴在网速右侧 (无耳机图标), 15s 刷新, 占宽 ~29pt; 只读单只 (双耳同步耗电); 显隐 = 开关 AND 已连接耳机 (网速只看开关): 未连接自动消失, 关开关连 15s 轮询一并停止
+- 两个开关都关 → item 退化成 `ellipsis.circle`, 仍可点开菜单 (否则 Quit 无入口)
+- 菜单里的 `AirPods Battery Notification...` = 编辑低电量通知 (JSON: 阈值 + 要调用的 HTTP 请求, 首次打开填模板)
 - ad-hoc 签名, 未公证, App Store 外分发; 需 macOS 26+
 
 ## 架构
 
 Swift 6 + AppKit, 纯 `NSStatusItem` 实现, 无私有 API. `autosaveName` 托管图标位置, `UserDefaults` 存读数开关, `ServiceManagement` 管登录启动. 无第三方依赖.
 
-分层 (新增读数 = 加一个 Section 子类 + controller 列表加一行):
+分层:
 
 <!-- prettier-ignore -->
 | 层 | 目录 | 职责 |
 | --- | --- | --- |
 | 数据 | `Monitors/` | 读硬件值, 不碰 AppKit |
 | 规则 | `Notify/` | 规则解析 + 逐格状态机 + HTTP 发送, 不碰 AppKit |
-| 展示 | `Sections/` | 一个 `NSStatusItem` 的位置 / 刷新循环 / 显隐 / 绘制 / 弹窗 |
-| 编排 | `StatusBarController` | 菜单 item + sections 排布 + 聚合菜单 |
+| 展示 | `Readout/` | 刷新循环 / 开关 / 绘制 / 弹窗 |
+| 编排 | `StatusBarController` | 唯一 `NSStatusItem` + 菜单 + 登录启动 |
 
-`StatusSection` 基类收拢公共骨架: 位置播种 / `Task` 刷新循环 / `UserDefaults` 显隐 / 取消竞态; 子类只重写 `refresh()` (返回 false = 无数据 → 自动隐藏) 与 `refreshInterval`.
+`MenuBarReadout` 持两条独立循环 (网速 1s / 电量 15s) 与两个开关, 任一变化就重画整张图交给 controller; `ReadoutImage` 只做绘制, 不碰状态.
 
-- 新 item MUST 播种位置 0 (最右可用槽, `StatusSection.seedRightmostPosition`), 否则首次出现会落在菜单栏最左, 和 jj-ice 其他图标散开
-- 只有 `Sections/` MAY `import AppKit`: 弹窗写在 section 内, MUST NOT 渗进 `Monitors/` / `Notify/`
-- 读数 section 默认点击无反应; 有设置才重写 `settingsTitle` (非 nil = controller 挂 click + 进 jj-ice 菜单 → 读数隐藏时仍可进) 与 `openSettings()`
-- `autosaveName` 与显隐 `UserDefaults` key 一经发布即冻结: 改名 = 重置用户图标位置 / 静默重开已关读数
-- 实测 AppKit 一旦 `isVisible = false` 就丢弃该 item 的 `NSStatusItem Preferred Position` 且永不回写 (反复隐藏 / 显示都不恢复) → 已播种的最右槽被交出, 读数会重现在菜单栏最左。两处对策: `init` 里 NEVER 设 `isVisible = false` (交给首次 `refresh()`, 代价约 60ms 空图标); 每次由隐藏转显示前重新播种 (`StatusSection.setVisible`)
+- MUST 全部内容合成单张 template `NSImage`: 图 + button title 两套字体基线对不齐, 且 template 才能自动跟随明暗菜单栏
+- item MUST 始终在菜单栏 (NEVER `isVisible = false`): 它是菜单与 Quit 的唯一入口; 空态画 `ellipsis.circle` 顶上
+- 顺带绕开一个实测坑: AppKit 一旦 `isVisible = false` 就丢弃该 item 的 `NSStatusItem Preferred Position` 且永不回写 → 槽位被交出, 图标重现在菜单栏最左
+- 首次启动 MUST 播种位置 0 (最右可用槽, `StatusBarController.seedRightmostPosition`), 否则新 item 落在菜单栏最左
+- 电量列用左对齐 + 2pt 余量: `%` 的墨迹超出 `size()` 报的宽度, 右对齐时无论盒子多宽都贴着右边被裁 (实测)
+- 只有 `Readout/` MAY `import AppKit`: MUST NOT 渗进 `Monitors/` / `Notify/`
+- `autosaveName` 与开关 `UserDefaults` key 一经发布即冻结: 改名 = 重置用户图标位置 / 静默重开已关读数
 - NEVER 接「折叠 / 隐藏菜单栏图标」类需求: macOS 27 起整条菜单栏是单一 window, 第三方 item 无 CG window, SkyLight 旧 status bar 接口全被编译成空实现, `MenuBarAgent` 由私有 entitlement `com.apple.private.menubar.allow` 把关 (需 Apple 签名) → 公开与私有路线均无解
 - macOS 26 实测 `CGWindowListCopyWindowInfo` (macOS 27 更彻底, 整条菜单栏只剩 1 个 window): 全部菜单栏图标 (含第三方) 的 owner 都是 `Control Center` 进程, 无 Screen Recording 权限时 `kCGWindowName` 全 nil → NEVER 接「把读数贴到系统某图标右侧」类需求: Preferred Position 只在创建 / 隐藏→显示时被读取, 事后跟不了目标的移动 (macOS 27 的 AX 树虽然列得出每个 item 的 owner 与 frame, 但既无显隐属性也不可写 `AXPosition`)
 
@@ -63,7 +66,7 @@ AirPods 采样: 子进程跑 `system_profiler SPBluetoothDataType -json` 解析 
 - 子进程在 `Task.detached` 里跑 → 不卡主线程; 每条退出路径 `waitUntilExit()` 回收 (否则每轮攒一个 zombie); 10s 看门狗 `terminate()` 兜蓝牙栈卡死 → 退化成「无读数」而非永久冻结
 - 15s 轮询: 电量分钟级才动 1%, 连接/断开表现为读数出现/消失; 无需监听 `IOBluetooth` 连接通知 (历史上有缺符号崩溃 + 连接失败也回调)
 
-低电量通知: 点 AirPods 读数 (或 jj-ice 菜单同名项) 弹 `NSAlert` + `NSTextView` 编辑 JSON 规则, 原文存 `UserDefaults`; 首次打开填模板 (指向 notify 端点), 未保存 NEVER 发送.
+低电量通知: jj-ice 菜单里的 `AirPods Battery Notification...` 弹 `NSAlert` + `NSTextView` 编辑 JSON 规则, 原文存 `UserDefaults`; 首次打开填模板 (指向 notify 端点), 未保存 NEVER 发送.
 
 - key: `threshold` (1-100) / `url` / `method` / `query` / `headers` / `body`; `{percent}` 替换为电量; body 仅 POST / PUT / PATCH (`URLSession` 在 GET 上直接丢弃)
 - query 手动按 RFC 3986 unreserved 集转义: NEVER 用 `URLComponents.queryItems`, 实测它保留 `+` 原样 (`%` 会正确转成 `%25`) → 端点把字面加号读成空格
@@ -85,8 +88,8 @@ AirPods 采样: 子进程跑 `system_profiler SPBluetoothDataType -json` 解析 
 
 - `Package.swift` — SwiftPM 清单: deployment target + `MainActor` 默认隔离
 - `VERSION` — 版本单一信源; tag = `v` + 内容
-- `Sources/jj-ice/` — 源码: `main.swift` (入口) / `AppDelegate.swift` / `StatusBarController.swift` (菜单 item + sections 排布 + 菜单)
-- `Sources/jj-ice/Sections/` — 展示层: `StatusSection.swift` (基类) / `NetworkSpeedSection.swift` / `AirPodsBatterySection.swift`
+- `Sources/jj-ice/` — 源码: `main.swift` (入口) / `AppDelegate.swift` / `StatusBarController.swift` (唯一 item + 菜单)
+- `Sources/jj-ice/Readout/` — 展示层: `MenuBarReadout.swift` (循环 + 开关) / `ReadoutImage.swift` (绘制) / `AirPodsNotifyEditor.swift` (JSON 弹窗)
 - `Sources/jj-ice/Monitors/` — 数据层: `NetworkSpeedMonitor.swift` (接口 MIB 采样 → 速率) / `AirPodsBatteryMonitor.swift` (`system_profiler` → 电量)
 - `Sources/jj-ice/Notify/` — 规则层: `BatteryNotifyRule.swift` (JSON → 校验 → `URLRequest`) / `BatteryNotifier.swift` (逐格状态机 + 发送 + 重试上限)
 - `Resources/` — `Info.plist.in` (`@VERSION@` 占位 + `LSUIElement`) / `AppIcon.icns`
