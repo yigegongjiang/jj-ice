@@ -14,6 +14,15 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-13
+
+### Added
+
+- Quick Copy: 按全局快捷键, 在鼠标所在屏幕正中弹出多行输入框, 回车把内容写进剪贴板并关闭 (Shift+Return 换行, Esc 或点别处取消)。
+- 默认快捷键 ⌘Space, 默认开启; 菜单新增 `Quick Copy` 开关和 `Quick Copy Shortcut...` (快捷键写成 `cmd+space` / `ctrl+opt+k` 这种形式)。
+- ⌘Space 出厂属于 Spotlight: 被系统占用时设置弹窗会直接说明并指向系统设置; 被 Raycast / Alfred 这类启动器占用则探测不到, 表现为按了没反应, 换个组合即可。
+- 输入框与低电量通知的 JSON 编辑框现在都支持 ⌘X / ⌘C / ⌘V / ⌘A / ⌘Z。
+
 ## [0.11.0] - 2026-09-12
 
 ### Changed
@@ -194,6 +203,7 @@
 - Added the install script.
 
 [Unreleased]: https://github.com/yigegongjiang/jj-ice/compare/v0.11.0...HEAD
+[0.12.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/yigegongjiang/jj-ice/compare/v0.8.1...v0.9.0

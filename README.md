@@ -8,7 +8,7 @@
 
 # jj-ice
 
-macOS 菜单栏常驻读数, 只占一个图标: 上下行网速 + 右侧 AirPods 电量.
+macOS 菜单栏常驻读数, 只占一个图标: 上下行网速 + 右侧 AirPods 电量; 外加一个全局快捷键唤起的取词输入框.
 
 ## 使用
 
@@ -17,11 +17,13 @@ curl -fsSL https://raw.githubusercontent.com/yigegongjiang/jj-ice/main/scripts/i
 ```
 
 - 手动装: 下载 [Releases](https://github.com/yigegongjiang/jj-ice/releases) 的 `jj-ice-macos.zip` → 拖 `/Applications` → `xattr -dr com.apple.quarantine /Applications/jj-ice.app`
-- 全部内容画在一个 item 上: `[两行网速][间隔][电量%]`; 左右键点它均弹菜单 = 网速开关 / AirPods 电量开关 (均默认开) / AirPods 通知设置 / 登录启动 (默认开) / Help / About / Quit
+- 全部内容画在一个 item 上: `[两行网速][间隔][电量%]`; 左右键点它均弹菜单 = 网速开关 / AirPods 电量开关 / AirPods 通知设置 / Quick Copy 开关 / Quick Copy 快捷键 / 登录启动 / Help / About / Quit (三个开关与登录启动均默认开)
 - 网速两行 (上 = 上行 / 下 = 下行), 1s 刷新, 占宽 ~22pt; 只统计物理网卡 → VPN 开关不改变读数
 - AirPods 电量 `xx%` 贴在网速右侧 (无耳机图标), 15s 刷新, 占宽 ~29pt; 只读单只 (双耳同步耗电); 显隐 = 开关 AND 已连接耳机 (网速只看开关): 未连接自动消失, 关开关连 15s 轮询一并停止
 - 两个开关都关 → item 退化成 `ellipsis.circle`, 仍可点开菜单 (否则 Quit 无入口)
 - 菜单里的 `AirPods Battery Notification...` = 编辑低电量通知 (JSON: 阈值 + 要调用的 HTTP 请求, 首次打开填模板)
+- Quick Copy = 全局快捷键 (默认 ⌘Space) 在鼠标所在屏幕正中弹多行输入框: Return 把内容写进剪贴板并关闭, Shift/Option+Return 换行, Esc 或点别处取消; 菜单里 `Quick Copy Shortcut...` 改组合 (写成 `cmd+space` / `ctrl+opt+k`)
+- ⌘Space 出厂属于 Spotlight → 首次用 MUST 先在系统设置里让出, 或直接改成别的组合; 不需要任何辅助功能权限
 - ad-hoc 签名, 未公证, App Store 外分发; 需 macOS 26+
 
 ## 架构
@@ -36,6 +38,7 @@ Swift 6 + AppKit, 纯 `NSStatusItem` 实现, 无私有 API. `autosaveName` 托�
 | 数据 | `Monitors/` | 读硬件值, 不碰 AppKit |
 | 规则 | `Notify/` | 规则解析 + 逐格状态机 + HTTP 发送, 不碰 AppKit |
 | 展示 | `Readout/` | 刷新循环 / 开关 / 绘制 / 弹窗 |
+| 快捷键 | `QuickCopy/` | 全局快捷键 + 输入框 + 剪贴板 |
 | 编排 | `StatusBarController` | 唯一 `NSStatusItem` + 菜单 + 登录启动 |
 
 `MenuBarReadout` 持两条独立循环 (网速 1s / 电量 15s) 与两个开关, 任一变化就重画整张图交给 controller; `ReadoutImage` 只做绘制, 不碰状态.
@@ -45,7 +48,7 @@ Swift 6 + AppKit, 纯 `NSStatusItem` 实现, 无私有 API. `autosaveName` 托�
 - 顺带绕开一个实测坑: AppKit 一旦 `isVisible = false` 就丢弃该 item 的 `NSStatusItem Preferred Position` 且永不回写 → 槽位被交出, 图标重现在菜单栏最左
 - 首次启动 MUST 播种位置 0 (最右可用槽, `StatusBarController.seedRightmostPosition`), 否则新 item 落在菜单栏最左
 - 电量列用左对齐 + 2pt 余量: `%` 的墨迹超出 `size()` 报的宽度, 右对齐时无论盒子多宽都贴着右边被裁 (实测)
-- 只有 `Readout/` MAY `import AppKit`: MUST NOT 渗进 `Monitors/` / `Notify/`
+- 只有 `Readout/` 与 `QuickCopy/` MAY `import AppKit`: MUST NOT 渗进 `Monitors/` / `Notify/`
 - `autosaveName` 与开关 `UserDefaults` key 一经发布即冻结: 改名 = 重置用户图标位置 / 静默重开已关读数
 - NEVER 接「折叠 / 隐藏菜单栏图标」类需求: macOS 27 起整条菜单栏是单一 window, 第三方 item 无 CG window, SkyLight 旧 status bar 接口全被编译成空实现, `MenuBarAgent` 由私有 entitlement `com.apple.private.menubar.allow` 把关 (需 Apple 签名) → 公开与私有路线均无解
 - macOS 26 实测 `CGWindowListCopyWindowInfo` (macOS 27 更彻底, 整条菜单栏只剩 1 个 window): 全部菜单栏图标 (含第三方) 的 owner 都是 `Control Center` 进程, 无 Screen Recording 权限时 `kCGWindowName` 全 nil → NEVER 接「把读数贴到系统某图标右侧」类需求: Preferred Position 只在创建 / 隐藏→显示时被读取, 事后跟不了目标的移动 (macOS 27 的 AX 树虽然列得出每个 item 的 owner 与 frame, 但既无显隐属性也不可写 `AXPosition`)
@@ -80,6 +83,19 @@ AirPods 采样: 子进程跑 `system_profiler SPBluetoothDataType -json` 解析 
 - 弹窗期间 `runModal` 占住主 run loop → 所有读数刷新暂停, 关掉即恢复 (实测: 主队列 block 在模态期间不执行)。这是预期行为, MUST NOT 为此加补偿机制
 - 关掉「AirPods 电量」开关会停掉喂给通知的轮询 → 此时保存规则 MUST 明确告知未生效
 
+Quick Copy: Carbon `RegisterEventHotKey` 注册全局快捷键 → 无边框 `NSPanel` 弹在鼠标所在屏幕正中 → Return 写 `NSPasteboard.general`.
+
+- NEVER 用 `NSEvent.addGlobalMonitorForEvents` / `CGEventTap`: 两者都要辅助功能权限, 前者还吞不掉按键 (目标 app 照样收到)。Carbon 这条既不要权限也不要 entitlement → 装完即用
+- 实测 macOS 27: handler 装 `GetApplicationEventTarget()` + 热键注册 `GetEventDispatcherTarget()` 才送达; C 回调在主 run loop 被调用, 且因包级 `MainActor` 默认隔离必须标 `nonisolated` (隔离函数无法转成 C 函数指针)
+- 实测: 组合被 macOS 自带快捷键占用时 `RegisterEventHotKey` 照样返回 `noErr`, 按键却永不到达 → 唯一判据是读 `com.apple.symbolichotkeys` 的 `AppleSymbolicHotKeys` (64 = Spotlight, 65 = Finder 搜索窗口, 60/61 = 输入法切换); 该 domain 在普通非沙盒进程里可读
+- 被 Raycast / Alfred 这类走 `CGEventTap` 的启动器抢走则无法探测: `RegisterEventHotKey` 返回 `noErr`, 系统表里也查不到 → 快捷键弹窗 MUST NOT 声称「在工作」, 只说「已注册, 没反应就是被别的 app 抢了」
+- 面板 MUST 是 `.borderless + .nonactivatingPanel` 且覆写 `canBecomeKey`: borderless 默认拒绝 key 状态 = 一个键都收不到; nonactivating 则让前台 app 始终不变 (实测 frontmost 不动), 回车后用户原地就能 ⌘V
+- 因为 app 从不变成前台, `hidesOnDeactivate` 不会触发 → 点别处关闭靠 `windowDidResignKey`; 该路径 MUST NOT 回抢焦点 (用户正点向别的 app)
+- `collectionBehavior` MUST 含 `.canJoinAllSpaces + .fullScreenAuxiliary`: 否则在全屏 app 里按快捷键表现为「什么都没发生」
+- 先写剪贴板再关窗; 空文本只关窗 NEVER 清剪贴板 (误触不该毁掉已有内容); 每次打开 MUST 清空输入框
+- 快捷键存成 `cmd+space` 这种文本, 解析与格式化往返一致; MUST 至少一个修饰键 (裸键会被全局吞掉)
+- `NSApp.mainMenu` MUST 挂一个 Edit 菜单: menu bar agent 不显示菜单栏, 但 ⌘X/C/V/A/Z 的 key equivalent 正是由它解析, 没有则输入框里粘不进东西 (低电量通知的 JSON 框同此)
+
 构建形态: SwiftPM executable, 无 xcodeproj / Storyboard / asset catalog; `.app` 由 `scripts/build-app.sh` 组装 (Info.plist + icns + ad-hoc 签名). universal (arm64 + x86_64) — macOS 26 仍覆盖部分 Intel 机型.
 
 签名: ad-hoc (`codesign --sign -`), designated requirement 只钉 bundle identifier 不钉 cdhash. `SMAppService` 拒绝为无签名 bundle 注册登录项 → 签名是功能前提; 不钉 cdhash 则重装 / 升级不吊销用户已授权的登录项.
@@ -92,6 +108,7 @@ AirPods 采样: 子进程跑 `system_profiler SPBluetoothDataType -json` 解析 
 - `Sources/jj-ice/Readout/` — 展示层: `MenuBarReadout.swift` (循环 + 开关) / `ReadoutImage.swift` (绘制) / `AirPodsNotifyEditor.swift` (JSON 弹窗)
 - `Sources/jj-ice/Monitors/` — 数据层: `NetworkSpeedMonitor.swift` (接口 MIB 采样 → 速率) / `AirPodsBatteryMonitor.swift` (`system_profiler` → 电量)
 - `Sources/jj-ice/Notify/` — 规则层: `BatteryNotifyRule.swift` (JSON → 校验 → `URLRequest`) / `BatteryNotifier.swift` (逐格状态机 + 发送 + 重试上限)
+- `Sources/jj-ice/QuickCopy/` — 快捷键层: `HotKeyShortcut.swift` (文本 ⇄ 键码) / `GlobalHotKey.swift` (Carbon 注册) / `QuickCopyPanel.swift` (输入框 + 剪贴板) / `QuickCopyController.swift` (开关 + 冲突探测) / `QuickCopyShortcutEditor.swift` (设置弹窗)
 - `Resources/` — `Info.plist.in` (`@VERSION@` 占位 + `LSUIElement`) / `AppIcon.icns`
 - `scripts/build-app.sh` — 构建 + 组装 `.app` + ad-hoc 签名; 本机与 CI 共用同一份
 - `scripts/install-local.sh` — 本机预部署: 调 `build-app.sh` + 装入 `/Applications`

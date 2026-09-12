@@ -16,6 +16,8 @@ final class StatusBarController {
     private let item: NSStatusItem
     private let readout: MenuBarReadout
     private let notifyEditor: AirPodsNotifyEditor
+    private let quickCopy: QuickCopyController
+    private let quickCopyEditor: QuickCopyShortcutEditor
 
     private let defaults: UserDefaults
     private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "jj-ice", category: "StatusBar")
@@ -28,6 +30,8 @@ final class StatusBarController {
         self.defaults = defaults
         self.readout = MenuBarReadout(defaults: defaults)
         self.notifyEditor = AirPodsNotifyEditor(readout: readout)
+        self.quickCopy = QuickCopyController(defaults: defaults)
+        self.quickCopyEditor = QuickCopyShortcutEditor(controller: quickCopy)
 
         Self.seedRightmostPosition(defaults)
         self.item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -39,6 +43,7 @@ final class StatusBarController {
             self?.item.button?.toolTip = tooltip
         }
         readout.start()
+        quickCopy.start()
         enableLaunchAtLoginByDefaultIfNeeded()
     }
 
@@ -85,6 +90,13 @@ final class StatusBarController {
         menu.addItem(makeMenuItem(title: "AirPods Battery Notification...",
                                   action: #selector(menuOpenNotifyEditor)))
 
+        let quickCopyItem = makeMenuItem(title: "Quick Copy", action: #selector(menuToggleQuickCopy))
+        quickCopyItem.state = quickCopy.isEnabled ? .on : .off
+        menu.addItem(quickCopyItem)
+
+        menu.addItem(makeMenuItem(title: "Quick Copy Shortcut...",
+                                  action: #selector(menuOpenQuickCopyEditor)))
+
         let launchItem = makeMenuItem(title: "Launch at Login", action: #selector(menuToggleLaunchAtLogin))
         launchItem.state = isLaunchAtLoginEnabled ? .on : .off
         menu.addItem(launchItem)
@@ -116,6 +128,14 @@ final class StatusBarController {
         notifyEditor.open()
     }
 
+    @objc private func menuToggleQuickCopy() {
+        quickCopy.isEnabled.toggle()
+    }
+
+    @objc private func menuOpenQuickCopyEditor() {
+        quickCopyEditor.open()
+    }
+
     @objc private func menuOpenHelp() {
         NSWorkspace.shared.open(Self.repositoryURL)
     }
@@ -126,9 +146,10 @@ final class StatusBarController {
         alert.messageText = "jj-ice \(version)"
         alert.informativeText = """
         One menu bar item: network speed, with the AirPods battery level to its right.
-        Click it for the menu: both switches, the battery notification and Launch at Login.
+        Click it for the menu: the switches, the battery notification, Quick Copy and Launch at Login.
         The speed readout sums the physical links, so a VPN going up or down does not change the numbers.
         The AirPods percentage is one earbud's, and disappears when nothing is connected.
+        Quick Copy opens a text box on \(quickCopy.shortcut.symbols); Return puts what you typed on the clipboard.
         """
         alert.addButton(withTitle: "OK")
         NSApp.activate()
